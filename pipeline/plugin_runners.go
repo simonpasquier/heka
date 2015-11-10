@@ -366,7 +366,8 @@ func (ir *iRunner) Starter(h PluginHelper, wg *sync.WaitGroup) {
 
 			// If we've not been created elsewhere, call the plugin's Init()
 			if !ir.transient {
-				if err = ir.plugin.Init(ir.maker.Config()); err != nil {
+				config, _ := ir.maker.PrepConfig()
+				if err = ir.plugin.Init(config); err != nil {
 					// We couldn't reInit the plugin, do a mini-retry loop
 					ir.LogError(err)
 					goto initLoop
