@@ -10,6 +10,8 @@ Features
 
 * Added `status_field` setting to http_status filter (#1876)
 
+* Added `skip_invalid_record` setting to buffering.
+
 Bug Handling
 ------------
 

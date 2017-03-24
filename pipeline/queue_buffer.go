@@ -64,6 +64,7 @@ type QueueBufferConfig struct {
 	MaxBufferSize     uint64 `toml:"max_buffer_size"`
 	FullAction        string `toml:"full_action"`
 	CursorUpdateCount uint   `toml:"cursor_update_count"`
+	SkipInvalidRecord bool   `toml:"skip_invalid_record"`
 }
 
 const DefaultBufferMaxFileSize uint64 = uint64(512 * 1024 * 1024)
@@ -74,6 +75,7 @@ func defaultQueueBufferConfig() *QueueBufferConfig {
 		MaxBufferSize:     uint64(0),
 		FullAction:        "shutdown",
 		CursorUpdateCount: uint(1),
+		SkipInvalidRecord: false,
 	}
 }
 
@@ -636,6 +638,11 @@ func (br *BufferReader) StreamOutput(sender BufferSender,
 				rh.Wait()
 				continue
 			}
+			if err == QueueInvalidRecord && br.config.SkipInvalidRecord {
+				// Skip this record and try to fetch the next one
+				pack.QueueCursor = fmt.Sprintf("%d %d", br.readId, br.readOffset)
+				continue
+			}
 			return fmt.Errorf("can't get record: %s", err)
 		}
 
@@ -706,10 +713,13 @@ func (br *BufferReader) NextRecord(pack *PipelinePack) error {
 		return QueueNeedData
 	}
 	if recordLen < 1 {
+		br.runner.LogError(fmt.Errorf("invalid record length: %d", recordLen))
 		return QueueInvalidRecord
 	}
 	headerLen := int(record[1]) + message.HEADER_FRAMING_SIZE
 	if recordLen < headerLen {
+		br.runner.LogError(fmt.Errorf("invalid record: read %d bytes (%d needed)",
+			recordLen, headerLen))
 		return QueueInvalidRecord
 	}
 	msgLen := len(record) - headerLen
@@ -722,7 +732,8 @@ func (br *BufferReader) NextRecord(pack *PipelinePack) error {
 	pack.TrustMsgBytes = true
 	err = proto.Unmarshal(pack.MsgBytes, pack.Message)
 	if err != nil {
-		return fmt.Errorf("can't unmarshal record: %s", err)
+		br.runner.LogError(fmt.Errorf("can't unmarshal record: %s", err))
+		return QueueInvalidRecord
 	}
 	pack.QueueCursor = fmt.Sprintf("%d %d", br.readId, br.readOffset)
 	return nil
